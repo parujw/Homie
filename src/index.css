@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: Inter, "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
+    --font-display: Fraunces, "Noto Serif Thai", Georgia, serif;
+  }
+
+  html {
+    /* Keeps text legible when the phone is in landscape or has a large
+       accessibility text size set. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    /* Tap highlights on iOS make every card flash grey when scrolling. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button {
+    /* Preflight already strips borders; make the whole app's buttons feel
+       like buttons rather than text. */
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+}

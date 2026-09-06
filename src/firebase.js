@@ -146,10 +146,7 @@ export async function registerPushToken(identity) {
     }).catch((e) => console.error(e));
     onMessage(messaging, (payload) => {
       // Foreground push — the tab is open, so show an in-page notification.
-      new Notification(payload.notification?.title || "Homie", {
-        body: payload.notification?.body || "",
-        icon: "/icons/icon-192.png",
-      });
+      localNotify(payload.notification?.title || "Homie", payload.notification?.body || "");
     });
   }
   return token;
@@ -157,7 +154,40 @@ export async function registerPushToken(identity) {
 
 // Fires a local notification immediately (no server round-trip). Useful for
 // same-device reminders ("today's events") without needing Cloud Messaging.
-export function localNotify(title, body) {
+//
+// iOS only exposes notifications to an installed PWA, and even there the
+// `new Notification()` constructor throws — notifications must come from the
+// service worker registration. So prefer the registration everywhere and keep
+// the constructor as the desktop fallback.
+export async function localNotify(title, body) {
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-  new Notification(title, { body, icon: "/icons/icon-192.png" });
+  const options = { body, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png" };
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    if (reg) return reg.showNotification(title, options);
+  } catch (e) {
+    // Fall through to the constructor below.
+  }
+  try {
+    new Notification(title, options);
+  } catch (e) {
+    console.error("notification failed", e);
+  }
+}
+
+/**
+ * Why notifications may be unavailable on this device, so the UI can say
+ * something more useful than "turn them on".
+ *   "ready"        — supported, just needs permission (or already granted)
+ *   "needs-install" — iOS: only an installed PWA can show notifications
+ *   "unsupported"  — the browser has no Notification API at all
+ */
+export function notificationSupport() {
+  if (typeof Notification !== "undefined") return "ready";
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const installed =
+    window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+  return isIOS && !installed ? "needs-install" : "unsupported";
 }
