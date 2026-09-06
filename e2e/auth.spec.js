@@ -28,8 +28,22 @@ test("sign up, reach the app, then sign in again", async ({ page }) => {
   await page.getByRole("button", { name: "Create account" }).click();
 
   // Landing on the identity picker means Firebase accepted the new account —
-  // i.e. the Email/Password provider is enabled.
-  await expect(page.getByText("WHO'S OPENING THE APP?")).toBeVisible({ timeout: 30_000 });
+  // i.e. the Email/Password provider is enabled. If the form reports an error
+  // instead, surface it: the message says exactly what the backend rejected,
+  // which is far more useful than a locator timeout.
+  const identityGate = page.getByText("WHO'S OPENING THE APP?");
+  const formError = page.getByTestId("auth-error");
+  await Promise.race([
+    identityGate.waitFor({ timeout: 60_000 }).catch(() => {}),
+    formError.waitFor({ timeout: 60_000 }).catch(() => {}),
+  ]);
+  if (await formError.isVisible()) {
+    throw new Error(
+      `Sign-up rejected: "${await formError.textContent()}"\n` +
+        `Firebase errors logged by the page: ${authErrors.join(" | ") || "(none)"}`
+    );
+  }
+  await expect(identityGate).toBeVisible({ timeout: 30_000 });
 
   // --- Firestore ---------------------------------------------------------
   // Picking an identity renders the app only once the household snapshot

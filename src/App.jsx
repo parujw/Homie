@@ -249,6 +249,7 @@ function AuthGate() {
       else await signIn(email.trim(), password);
       // watchAuth in App renders the rest — nothing to do here on success.
     } catch (err) {
+      console.error("auth error", err.code, err.message);
       setError(authErrorMessage(err.code));
       setBusy(false);
     }
@@ -285,7 +286,7 @@ function AuthGate() {
           style={field}
         />
         {error && (
-          <p style={{ color: C.coral, fontSize: 13, marginBottom: 12, lineHeight: 1.4 }}>{error}</p>
+          <p data-testid="auth-error" style={{ color: C.coral, fontSize: 13, marginBottom: 12, lineHeight: 1.4 }}>{error}</p>
         )}
         <button
           type="submit" disabled={busy}
