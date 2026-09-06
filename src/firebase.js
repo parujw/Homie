@@ -77,6 +77,10 @@ export function authErrorMessage(code) {
       return "Network problem — check your connection.";
     case "auth/operation-not-allowed":
       return "Email/password sign-in isn't enabled for this Firebase project yet.";
+    case "auth/configuration-not-found":
+      // The Authentication service itself has never been initialised for the
+      // project — Console → Authentication → Get started.
+      return "Authentication isn't set up for this Firebase project yet.";
     default:
       return "Something went wrong. Please try again.";
   }
