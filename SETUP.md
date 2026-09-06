@@ -1,56 +1,53 @@
-# Homie — คู่มือติดตั้ง Firebase
+# Homie — คู่มือ Firebase
 
-แอปนี้เป็น PWA จริง (ติดตั้งขึ้นหน้าจอโฮมได้) พร้อมโครง Firebase ไว้ให้ครบ
-แต่ต้องเติม config ของโปรเจกต์ Firebase ของตัวเองก่อนถึงจะ sync ข้อมูลและ
-แจ้งเตือนข้ามเครื่องได้จริง
+แอปนี้เป็น PWA (ติดตั้งขึ้นหน้าจอโฮมได้) ต่อกับโปรเจกต์ Firebase
+**`homie-f7172`** เรียบร้อยแล้ว — config ของ web app ถูกใส่ไว้ใน
+`src/firebase.js` และ `public/firebase-messaging-sw.js` แล้ว
 
-## ขั้นตอน
+## สิ่งที่ต่อไว้แล้ว
 
-1. ไปที่ https://console.firebase.google.com → สร้างโปรเจกต์ใหม่ (ฟรี)
-2. ในโปรเจกต์ → Add app → เลือก Web (</>) → ตั้งชื่อ → จะได้ config object
-   หน้าตาแบบนี้:
-   ```js
-   {
-     apiKey: "...",
-     authDomain: "...",
-     projectId: "...",
-     storageBucket: "...",
-     messagingSenderId: "...",
-     appId: "...",
-   }
+- **Authentication (Email/Password)** — สมัคร/เข้าสู่ระบบด้วยอีเมล+รหัสผ่าน
+  ต้องล็อกอินก่อนถึงจะเข้าแอปได้ (`AuthGate` ใน `src/App.jsx`)
+- **Firestore** — ข้อมูลทั้งบ้าน (ของซื้อ / ปฏิทิน / mood / สัตว์เลี้ยง /
+  รายจ่าย) sync แบบเรียลไทม์ผ่าน document `households/putter-and-q`
+- **PWA** — ติดตั้งขึ้นหน้าจอโฮมได้ทั้ง iOS/Android
+
+## ขั้นตอนที่ต้องทำในคอนโซล (ครั้งเดียว)
+
+1. **เปิด Email/Password sign-in**
+   Authentication → Sign-in method → Email/Password → Enable
+   หรือ deploy จากไฟล์ `firebase.json` ในโปรเจกต์นี้:
+   ```bash
+   npx -y firebase-tools@latest login
+   npx -y firebase-tools@latest deploy --only auth
    ```
-3. เปิดใช้งาน 3 อย่างในคอนโซล:
-   - **Firestore Database** → Create database → production mode
-   - **Authentication** → Sign-in method → เปิด "Anonymous"
-   - **Cloud Messaging** → Project settings → Cloud Messaging → Web Push
-     certificates → Generate key pair (นี่คือ VAPID key)
-4. วาง config ทั้งหมดลงใน 2 ไฟล์ (ค่าต้องเหมือนกันทั้งคู่):
-   - `src/firebase.js` (ตัวแปร `firebaseConfig` และ `VAPID_KEY`)
-   - `public/firebase-messaging-sw.js`
-5. ตั้ง Firestore Rules (Firestore → Rules):
+2. **สร้าง Firestore database** (ถ้ายังไม่มี)
+   Firestore Database → Create database → production mode
+3. **Deploy security rules** จาก `firestore.rules` ในโปรเจกต์นี้:
+   ```bash
+   npx -y firebase-tools@latest deploy --only firestore:rules
    ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /households/{houseId} {
-         allow read, write: if request.auth != null;
-       }
-     }
-   }
-   ```
-6. Deploy ใหม่อีกครั้ง (ถ้าใช้ Vercel: แค่ push โค้ดที่แก้แล้ว หรือขอให้ผม
-   deploy ให้ใหม่)
+4. **เพิ่มโดเมน production** ที่ deploy จริง (เช่นโดเมนของ Vercel) ลงใน
+   `authorizedDomains` ใน `firebase.json` แล้ว deploy auth ใหม่ —
+   ใส่แค่ชื่อโดเมน ห้ามใส่ `https://` หรือเลข port
 
-## สิ่งที่ทำงานได้เลยตอนนี้ (ไม่ต้องตั้งค่าอะไร)
-- ติดตั้งเป็น PWA ขึ้นหน้าจอโฮมได้ทั้ง iOS/Android
-- แจ้งเตือนในแอป (ตอนแอปเปิดอยู่) เมื่ออีกคนเพิ่มของ/นัด/รายจ่าย
+## Push notification (ยังไม่เปิด — ทำภายหลังได้)
 
-## สิ่งที่ต้องมี Firebase config ก่อนถึงจะทำงาน
-- ข้อมูล sync กันแบบเรียลไทม์ข้ามเครื่อง (Firestore)
-- Push notification แม้ปิดแอป (ต้องมี `functions/index.js` deploy เพิ่ม —
-  ดูคำอธิบายในไฟล์นั้น ต้องใช้ Firebase แผน Blaze)
+ตอนนี้แจ้งเตือนทำงานเฉพาะตอนแอปเปิดอยู่ ถ้าอยากให้เตือนแม้ปิดแอป:
+
+1. Project settings → Cloud Messaging → Web Push certificates →
+   Generate key pair แล้วเอา VAPID key ไปใส่ใน `src/firebase.js`
+   (ตัวแปร `VAPID_KEY` ที่ยังเป็น `REPLACE_ME`)
+2. Deploy `functions/index.js` (ต้องใช้แผน Blaze) — ดูคำอธิบายในไฟล์นั้น
 
 ## สิ่งที่ทำไม่ได้จากเว็บแอป
-- Widget แบบ native บนหน้าจอโฮม (ต้องเขียนแอป native จริงสำหรับ iOS/Android)
-- LINE rich menu / LINE bot (ต้องมี LINE Official Account + backend endpoint
-  แยกต่างหาก ถ้าต้องการเพิ่มทีหลังบอกได้ ทำเป็นเฟสถัดไปได้)
+
+- Widget แบบ native บนหน้าจอโฮม (ต้องเขียนแอป native จริง)
+- LINE rich menu / LINE bot (ต้องมี LINE Official Account + backend แยก)
+
+## หมายเหตุ
+
+โค้ดเดิมเรียกใช้ Tailwind utility class (`flex`, `px-5`, …) แต่โปรเจกต์
+ยังไม่ได้ติดตั้ง Tailwind เลย class เหล่านั้นจึงไม่มีผล — หน้าตาบางหน้าจะ
+ยังไม่ตรงตามที่ออกแบบไว้ ถ้าจะแก้ต้องเพิ่ม Tailwind เข้าโปรเจกต์
+(หน้า login เขียนด้วย inline style จึงแสดงผลถูกต้องอยู่แล้ว)

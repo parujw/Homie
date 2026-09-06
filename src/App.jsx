@@ -24,11 +24,13 @@ import {
   ArrowRight,
   Bell,
   BellOff,
-  AlertTriangle,
 } from "lucide-react";
 import {
-  isFirebaseConfigured,
-  ensureSignedIn,
+  watchAuth,
+  signUp,
+  signIn,
+  logOut,
+  authErrorMessage,
   watchHouse,
   saveField,
   requestNotificationPermission,
@@ -231,6 +233,78 @@ function PrimaryButton({ children, ...props }) {
 /* ---------------------------------------------------------------
    IDENTITY GATE
 --------------------------------------------------------------- */
+function AuthGate() {
+  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      if (mode === "signup") await signUp(email.trim(), password);
+      else await signIn(email.trim(), password);
+      // watchAuth in App renders the rest — nothing to do here on success.
+    } catch (err) {
+      setError(authErrorMessage(err.code));
+      setBusy(false);
+    }
+  };
+
+  const field = {
+    width: "100%", padding: "14px 16px", borderRadius: 16, background: C.card,
+    border: `1.5px solid ${C.line}`, fontSize: 15, color: C.ink, marginBottom: 12,
+  };
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 32px", background: C.paper }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+        <div style={{ width: 84, height: 84, borderRadius: 28, background: C.primarySoft, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+          <HomeIcon size={38} color={C.primary} strokeWidth={2} />
+        </div>
+        <h1 style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 30, color: C.ink }}>Homie</h1>
+        <p style={{ color: C.ink70, fontSize: 14.5, marginTop: 8, marginBottom: 28, lineHeight: 1.5 }}>
+          {mode === "signup"
+            ? "Create an account to start planning together."
+            : "Sign in to your shared planner."}
+        </p>
+      </div>
+
+      <form onSubmit={submit}>
+        <input
+          type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email" autoComplete="email" required style={field}
+        />
+        <input
+          type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password" required
+          autoComplete={mode === "signup" ? "new-password" : "current-password"}
+          style={field}
+        />
+        {error && (
+          <p style={{ color: C.coral, fontSize: 13, marginBottom: 12, lineHeight: 1.4 }}>{error}</p>
+        )}
+        <button
+          type="submit" disabled={busy}
+          style={{ width: "100%", padding: "15px 0", borderRadius: 18, background: C.primary, color: "#fff", fontWeight: 700, fontSize: 15.5, opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
+        </button>
+      </form>
+
+      <button
+        onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); }}
+        style={{ marginTop: 18, color: C.ink70, fontSize: 13.5, background: "none", border: "none" }}
+      >
+        {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
+      </button>
+    </div>
+  );
+}
+
 function IdentityGate({ onPick }) {
   return (
     <div className="flex flex-col items-center justify-center h-full px-8 text-center" style={{ background: C.paper }}>
@@ -876,7 +950,7 @@ function FinanceTab({ expenses, setExpenses, budgets, setBudgets, identity }) {
 /* ---------------------------------------------------------------
    PROFILE TAB
 --------------------------------------------------------------- */
-function ProfileTab({ identity, setIdentity, onResetAll, notifStatus, onEnableNotifications }) {
+function ProfileTab({ identity, setIdentity, email, onSignOut, onResetAll, notifStatus, onEnableNotifications }) {
   const [confirming, setConfirming] = useState(false);
   return (
     <div className="px-5 pt-6 pb-4">
@@ -885,18 +959,9 @@ function ProfileTab({ identity, setIdentity, onResetAll, notifStatus, onEnableNo
         <h1 style={{ fontFamily: "Fraunces, serif", fontWeight: 700, fontSize: 22, color: C.ink }}>Profile</h1>
       </div>
 
-      {!isFirebaseConfigured && (
-        <div style={{ background: C.goldSoft, borderRadius: 18, padding: 14, marginBottom: 20, display: "flex", gap: 10 }}>
-          <AlertTriangle size={18} color={C.gold} style={{ flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.5 }}>
-            Firebase isn't connected yet, so data only lives on this device and notifications can't reach the other phone.
-            Fill in <b>src/firebase.js</b> with your Firebase project's config to turn on real sync and push.
-          </p>
-        </div>
-      )}
-
       <div style={{ background: C.card, borderRadius: 20, border: `1px solid ${C.line}`, padding: 18, marginBottom: 20 }}>
-        <p style={{ fontSize: 12, color: C.ink50, fontWeight: 700, letterSpacing: 0.3, marginBottom: 10 }}>SIGNED IN AS</p>
+        <p style={{ fontSize: 12, color: C.ink50, fontWeight: 700, letterSpacing: 0.3, marginBottom: 4 }}>SIGNED IN AS</p>
+        <p style={{ fontSize: 13.5, color: C.ink70, marginBottom: 12 }}>{email}</p>
         <div className="flex gap-3">
           {USERS.map((u) => (
             <button key={u} onClick={() => setIdentity(u)} style={{ flex: 1, padding: "14px 0", borderRadius: 16, background: identity === u ? C.primary : C.paper, color: identity === u ? "#fff" : C.ink, fontWeight: 700, fontSize: 15 }}>
@@ -904,6 +969,7 @@ function ProfileTab({ identity, setIdentity, onResetAll, notifStatus, onEnableNo
             </button>
           ))}
         </div>
+        <button onClick={onSignOut} style={{ marginTop: 14, color: C.primary, fontWeight: 700, fontSize: 13.5 }}>Sign out</button>
       </div>
 
       <div style={{ background: C.card, borderRadius: 20, border: `1px solid ${C.line}`, padding: 18, marginBottom: 20 }}>
@@ -953,6 +1019,8 @@ function ProfileTab({ identity, setIdentity, onResetAll, notifStatus, onEnableNo
    ROOT APP
 --------------------------------------------------------------- */
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [identity, setIdentityState] = useState(() => localStorage.getItem("homie:identity") || null);
   const [tab, setTab] = useState("home");
   const [loaded, setLoaded] = useState(false);
@@ -967,28 +1035,34 @@ export default function App() {
 
   const prevRef = useRef(null); // last house snapshot, for diff-based local notifications
 
+  useEffect(() => watchAuth((u) => {
+    setUser(u);
+    setAuthReady(true);
+  }), []);
+
   useEffect(() => {
-    let unsub = () => {};
-    (async () => {
-      await ensureSignedIn();
-      unsub = watchHouse((house) => {
-        // Notify about changes made by the OTHER person since last snapshot.
-        if (identity && prevRef.current) {
-          notifyOnDiff(prevRef.current, house, identity);
-        }
-        prevRef.current = house;
-        setShoppingState(house.shopping || []);
-        setEventsState(house.events || []);
-        setMoodsState(house.moods || []);
-        setPetsState(house.pets || []);
-        setExpensesState(house.expenses || []);
-        setBudgetsState(house.budgets || []);
-        setLoaded(true);
-      });
-    })();
+    if (!user) {
+      setLoaded(false);
+      prevRef.current = null;
+      return;
+    }
+    const unsub = watchHouse((house) => {
+      // Notify about changes made by the OTHER person since last snapshot.
+      if (identity && prevRef.current) {
+        notifyOnDiff(prevRef.current, house, identity);
+      }
+      prevRef.current = house;
+      setShoppingState(house.shopping || []);
+      setEventsState(house.events || []);
+      setMoodsState(house.moods || []);
+      setPetsState(house.pets || []);
+      setExpensesState(house.expenses || []);
+      setBudgetsState(house.budgets || []);
+      setLoaded(true);
+    });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity]);
+  }, [user, identity]);
 
   function notifyOnDiff(prev, next, me) {
     const newlyAdded = (a, b) => (b || []).filter((x) => !(a || []).some((y) => y.id === x.id));
@@ -1034,7 +1108,11 @@ export default function App() {
     <div style={{ width: "100%", height: "100vh", display: "flex", justifyContent: "center", background: "#E9E1D2", fontFamily: "Inter, sans-serif" }}>
       <style>{`* { box-sizing: border-box; } ::-webkit-scrollbar { display: none; }`}</style>
       <div style={{ width: "100%", maxWidth: 430, background: C.paper, display: "flex", flexDirection: "column", height: "100%", position: "relative" }}>
-        {!identity ? (
+        {!authReady ? (
+          <div className="flex items-center justify-center h-full"><p style={{ color: C.ink50, fontSize: 13 }}>Loading Homie…</p></div>
+        ) : !user ? (
+          <AuthGate />
+        ) : !identity ? (
           <IdentityGate onPick={pickIdentity} />
         ) : !loaded ? (
           <div className="flex items-center justify-center h-full"><p style={{ color: C.ink50, fontSize: 13 }}>Loading Homie…</p></div>
@@ -1050,6 +1128,8 @@ export default function App() {
                 <ProfileTab
                   identity={identity}
                   setIdentity={pickIdentity}
+                  email={user.email}
+                  onSignOut={logOut}
                   onResetAll={resetAll}
                   notifStatus={notifStatus}
                   onEnableNotifications={enableNotifications}

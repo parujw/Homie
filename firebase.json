@@ -1,0 +1,15 @@
+{
+  "auth": {
+    "authorizedDomains": [
+      "localhost",
+      "homie-f7172.firebaseapp.com",
+      "homie-f7172.web.app"
+    ],
+    "providers": {
+      "emailPassword": true
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

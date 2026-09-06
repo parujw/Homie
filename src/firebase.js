@@ -7,75 +7,94 @@ import {
   updateDoc,
   arrayUnion,
 } from "firebase/firestore";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import {
+  getAuth,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from "firebase/auth";
 import { getMessaging, getToken, onMessage, isSupported } from "firebase/messaging";
 
-/**
- * ⚠️ SETUP REQUIRED ⚠️
- * 1. Go to https://console.firebase.google.com → Create a project (free).
- * 2. Add a Web App inside the project → copy the config object it gives you
- *    and paste it below, replacing every "REPLACE_ME".
- * 3. In the Firebase console, enable:
- *      - Firestore Database (start in production mode, region asia-southeast1 is fine)
- *      - Authentication → Sign-in method → Anonymous → Enable
- *      - Cloud Messaging (for push notifications) → generate a Web Push
- *        certificate (VAPID key) under Project settings → Cloud Messaging,
- *        and paste it into VAPID_KEY below.
- * 4. Copy the exact same config into public/firebase-messaging-sw.js.
- * 5. Set Firestore rules (Firestore → Rules) to something like:
- *
- *      rules_version = '2';
- *      service cloud.firestore {
- *        match /databases/{database}/documents {
- *          match /households/{houseId} {
- *            allow read, write: if request.auth != null;
- *          }
- *        }
- *      }
- *
- * Until this is filled in, the app runs in "offline demo" mode — it works
- * for one device only and nothing syncs, but nothing crashes.
- */
+// Firebase project: homie-f7172. These values identify the project to Google's
+// servers — they are public by design, access is controlled by Firestore rules.
 const firebaseConfig = {
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME.firebaseapp.com",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME.appspot.com",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME",
+  apiKey: "AIzaSyCfzmhFbtcifzpcAWKMZr38YqLAg7zFkwc",
+  authDomain: "homie-f7172.firebaseapp.com",
+  projectId: "homie-f7172",
+  storageBucket: "homie-f7172.firebasestorage.app",
+  messagingSenderId: "238451644705",
+  appId: "1:238451644705:web:28c74d9292ee5f346e4660",
+  measurementId: "G-71KZBNCCK4",
 };
+
+// Web Push certificate from Project settings → Cloud Messaging. Push
+// notifications stay off until this is filled in; everything else works.
 const VAPID_KEY = "REPLACE_ME";
 
-export const isFirebaseConfigured = firebaseConfig.apiKey !== "REPLACE_ME";
+const isPushConfigured = VAPID_KEY !== "REPLACE_ME";
 
-let app, db, auth;
-if (isFirebaseConfigured) {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  auth = getAuth(app);
-}
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
 
 // Both Putter and Q read/write the same household document.
 const HOUSE_ID = "putter-and-q";
 const EMPTY_HOUSE = { shopping: [], events: [], moods: [], pets: [], expenses: [], budgets: [], tokens: {} };
 
-export async function ensureSignedIn() {
-  if (!isFirebaseConfigured) return null;
-  return new Promise((resolve) => {
-    onAuthStateChanged(auth, (user) => {
-      if (user) resolve(user);
-      else signInAnonymously(auth).catch((e) => console.error("auth error", e));
-    });
-  });
+/* ---------------- Authentication ---------------- */
+
+// Calls back with the signed-in user (or null) and again on every change.
+// Returns an unsubscribe function.
+export function watchAuth(onUser) {
+  return onAuthStateChanged(auth, onUser);
+}
+
+export async function signUp(email, password, displayName) {
+  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  if (displayName) await updateProfile(cred.user, { displayName });
+  return cred.user;
+}
+
+export async function signIn(email, password) {
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  return cred.user;
+}
+
+export function logOut() {
+  return signOut(auth);
+}
+
+// Turns a Firebase auth error code into something worth showing a user.
+export function authErrorMessage(code) {
+  switch (code) {
+    case "auth/invalid-email":
+      return "That email address doesn't look right.";
+    case "auth/missing-password":
+      return "Enter your password.";
+    case "auth/weak-password":
+      return "Password needs to be at least 6 characters.";
+    case "auth/email-already-in-use":
+      return "That email already has an account — sign in instead.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Email or password is incorrect.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Try again in a few minutes.";
+    case "auth/network-request-failed":
+      return "Network problem — check your connection.";
+    case "auth/operation-not-allowed":
+      return "Email/password sign-in isn't enabled for this Firebase project yet.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
 }
 
 // Subscribes to the shared household doc in real time. Creates it with
 // empty defaults on first run. Returns an unsubscribe function.
 export function watchHouse(onData) {
-  if (!isFirebaseConfigured) {
-    onData(EMPTY_HOUSE);
-    return () => {};
-  }
   const ref = doc(db, "households", HOUSE_ID);
   const unsub = onSnapshot(
     ref,
@@ -94,7 +113,6 @@ export function watchHouse(onData) {
 
 // Overwrites a single field (e.g. "shopping") on the shared house doc.
 export async function saveField(field, value) {
-  if (!isFirebaseConfigured) return;
   const ref = doc(db, "households", HOUSE_ID);
   try {
     await updateDoc(ref, { [field]: value });
@@ -116,7 +134,7 @@ export async function requestNotificationPermission() {
 // token under the current user's name so a Cloud Function (see
 // functions/index.js) can target it later.
 export async function registerPushToken(identity) {
-  if (!isFirebaseConfigured) return null;
+  if (!isPushConfigured) return null;
   const supported = await isSupported().catch(() => false);
   if (!supported) return null;
   const messaging = getMessaging(app);
