@@ -1082,7 +1082,25 @@ export default function App() {
       setSyncError(syncErrorMessage(err));
       setLoaded(true);
     });
-    return () => unsub();
+
+    // A project with no Firestore database never answers and never errors —
+    // the SDK just retries — so without this the app sits on "Loading Homie…"
+    // forever. Show the app with whatever we have and say what's wrong.
+    const timer = setTimeout(() => {
+      setLoaded((already) => {
+        if (!already) {
+          setSyncError(
+            "Can't reach Firestore. If this project has no database yet, create one in the Firebase console — nothing will save until then."
+          );
+        }
+        return true;
+      });
+    }, 12000);
+
+    return () => {
+      clearTimeout(timer);
+      unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, identity]);
 
