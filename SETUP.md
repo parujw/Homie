@@ -31,14 +31,21 @@
    `authorizedDomains` ใน `firebase.json` แล้ว deploy auth ใหม่ —
    ใส่แค่ชื่อโดเมน ห้ามใส่ `https://` หรือเลข port
 
-## Push notification (ยังไม่เปิด — ทำภายหลังได้)
+## Push notification
 
-ตอนนี้แจ้งเตือนทำงานเฉพาะตอนแอปเปิดอยู่ ถ้าอยากให้เตือนแม้ปิดแอป:
+VAPID key ใส่ไว้ใน `src/firebase.js` แล้ว เครื่องที่กด "Enable notifications"
+จะลงทะเบียน FCM token เก็บไว้ใน `households/putter-and-q` (ฟิลด์ `tokens`)
 
-1. Project settings → Cloud Messaging → Web Push certificates →
-   Generate key pair แล้วเอา VAPID key ไปใส่ใน `src/firebase.js`
-   (ตัวแปร `VAPID_KEY` ที่ยังเป็น `REPLACE_ME`)
-2. Deploy `functions/index.js` (ต้องใช้แผน Blaze) — ดูคำอธิบายในไฟล์นั้น
+เหลืออีกขั้นเดียวถ้าอยากให้เตือนตอน**ปิดแอป**: deploy `functions/index.js`
+ซึ่งต้องอัปโปรเจกต์เป็นแผน **Blaze** ก่อน แล้วรัน
+
+```bash
+npx -y firebase-tools@latest deploy --only functions
+```
+
+หมายเหตุ iOS: Safari จะให้สิทธิ์แจ้งเตือนเฉพาะเมื่อติดตั้งเป็น PWA แล้วเท่านั้น
+(Share → Add to Home Screen แล้วเปิดจากหน้าโฮม) — หน้า Profile ในแอปจะบอก
+สถานะนี้ให้เอง
 
 ## สิ่งที่ทำไม่ได้จากเว็บแอป
 

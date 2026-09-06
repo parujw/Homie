@@ -19,9 +19,10 @@ import { getMessaging, getToken, onMessage, isSupported } from "firebase/messagi
 
 import { firebaseConfig } from "./firebase-config.js";
 
-// Web Push certificate from Project settings → Cloud Messaging. Push
-// notifications stay off until this is filled in; everything else works.
-const VAPID_KEY = "REPLACE_ME";
+// Web Push certificate from Project settings → Cloud Messaging. Public by
+// design: it identifies this project to the browser's push service.
+const VAPID_KEY =
+  "BARWNfeCWE9cGd8s6Y45MIiQPuO0KnTApzSK_gaQtumF_x9zItay3CkE_azZeFqAQYoCxRxihASNzdKp8my1bGQ";
 
 const isPushConfigured = VAPID_KEY !== "REPLACE_ME";
 
@@ -154,7 +155,24 @@ export async function registerPushToken(identity) {
   const supported = await isSupported().catch(() => false);
   if (!supported) return null;
   const messaging = getMessaging(app);
-  const reg = await navigator.serviceWorker.ready;
+  // Push must be delivered to firebase-messaging-sw.js, which has the
+  // onBackgroundMessage handler — navigator.serviceWorker.ready would hand
+  // back the app's own sw.js instead, and background pushes would land in a
+  // worker that doesn't know how to render them.
+  //
+  // The worker pulls the Firebase compat scripts from gstatic, so registering
+  // it can fail offline or behind a filtering proxy. That only costs push
+  // while the app is closed — in-app notifications keep working — so give up
+  // quietly rather than failing the whole "enable notifications" action.
+  let reg;
+  try {
+    reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js", {
+      scope: "/firebase-cloud-messaging-push-scope",
+    });
+  } catch (e) {
+    console.error("messaging service worker failed to register", e);
+    return null;
+  }
   const token = await getToken(messaging, {
     vapidKey: VAPID_KEY,
     serviceWorkerRegistration: reg,
