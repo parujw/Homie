@@ -60,7 +60,10 @@ test("sign up, reach the app, then sign in again", async ({ page }) => {
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  // The identity choice lives in localStorage, so this lands straight on Home.
+  // The identity choice lives in localStorage, so this goes straight back into
+  // the app — on the tab it was left on (Profile), not Home.
+  await expect(page.getByRole("button", { name: "Home" })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Home" }).click();
   await expect(page.getByRole("heading", { name: "Putter" })).toBeVisible({ timeout: 30_000 });
 
   const permissionErrors = authErrors.filter((e) => /permission|insufficient/i.test(e));
