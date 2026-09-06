@@ -24,6 +24,7 @@ import {
   ArrowRight,
   Bell,
   BellOff,
+  AlertTriangle,
 } from "lucide-react";
 import {
   watchAuth,
@@ -31,6 +32,7 @@ import {
   signIn,
   logOut,
   authErrorMessage,
+  syncErrorMessage,
   watchHouse,
   saveField,
   requestNotificationPermission,
@@ -1037,6 +1039,7 @@ export default function App() {
   const [identity, setIdentityState] = useState(() => localStorage.getItem("homie:identity") || null);
   const [tab, setTab] = useState("home");
   const [loaded, setLoaded] = useState(false);
+  const [syncError, setSyncError] = useState("");
   const [notifStatus, setNotifStatus] = useState(() =>
     typeof Notification !== "undefined" ? Notification.permission : notificationSupport()
   );
@@ -1074,6 +1077,10 @@ export default function App() {
       setExpensesState(house.expenses || []);
       setBudgetsState(house.budgets || []);
       setLoaded(true);
+      setSyncError("");
+    }, (err) => {
+      setSyncError(syncErrorMessage(err));
+      setLoaded(true);
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1092,12 +1099,21 @@ export default function App() {
     });
   }
 
-  const setShopping = useCallback((v) => { setShoppingState(v); saveField("shopping", v); }, []);
-  const setEvents = useCallback((v) => { setEventsState(v); saveField("events", v); }, []);
-  const setMoods = useCallback((v) => { setMoodsState(v); saveField("moods", v); }, []);
-  const setPets = useCallback((v) => { setPetsState(v); saveField("pets", v); }, []);
-  const setExpenses = useCallback((v) => { setExpensesState(v); saveField("expenses", v); }, []);
-  const setBudgets = useCallback((v) => { setBudgetsState(v); saveField("budgets", v); }, []);
+  // The screen updates immediately, so a rejected write would otherwise look
+  // like it saved. Surface the failure instead.
+  const save = useCallback((field, value, setLocal) => {
+    setLocal(value);
+    saveField(field, value)
+      .then(() => setSyncError(""))
+      .catch((e) => setSyncError(syncErrorMessage(e)));
+  }, []);
+
+  const setShopping = useCallback((v) => save("shopping", v, setShoppingState), [save]);
+  const setEvents = useCallback((v) => save("events", v, setEventsState), [save]);
+  const setMoods = useCallback((v) => save("moods", v, setMoodsState), [save]);
+  const setPets = useCallback((v) => save("pets", v, setPetsState), [save]);
+  const setExpenses = useCallback((v) => save("expenses", v, setExpensesState), [save]);
+  const setBudgets = useCallback((v) => save("budgets", v, setBudgetsState), [save]);
 
   const pickIdentity = (u) => {
     setIdentityState(u);
@@ -1133,6 +1149,16 @@ export default function App() {
           <div className="flex items-center justify-center h-full"><p style={{ color: C.ink50, fontSize: 14.5 }}>Loading Homie…</p></div>
         ) : (
           <>
+            {syncError && (
+              <div
+                role="alert"
+                data-testid="sync-error"
+                style={{ background: C.coralSoft, borderBottom: `1px solid ${C.line}`, padding: "10px 16px", display: "flex", gap: 8, alignItems: "flex-start" }}
+              >
+                <AlertTriangle size={16} color={C.coral} style={{ flexShrink: 0, marginTop: 2 }} />
+                <p style={{ fontSize: 13, color: C.ink, lineHeight: 1.45 }}>{syncError}</p>
+              </div>
+            )}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {tab === "home" && <HomeTab identity={identity} shopping={shopping} events={events} pets={pets} budgets={budgets} expenses={expenses} setTab={setTab} />}
               {tab === "shopping" && <ShoppingTab shopping={shopping} setShopping={setShopping} identity={identity} />}

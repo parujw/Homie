@@ -56,6 +56,24 @@ export function logOut() {
   return signOut(auth);
 }
 
+// Turns a Firestore error into something worth showing a user. The common
+// case by far is rules that haven't been deployed yet.
+export function syncErrorMessage(err) {
+  switch (err?.code) {
+    case "permission-denied":
+      return "Can't save — Firestore security rules are rejecting this. Deploy firestore.rules (see SETUP.md).";
+    case "not-found":
+    case "failed-precondition":
+      return "Can't save — this project has no Firestore database yet. Create one in the Firebase console.";
+    case "unauthenticated":
+      return "Can't save — your session expired. Sign out and back in.";
+    case "unavailable":
+      return "Can't reach the server. Your changes will sync when you're back online.";
+    default:
+      return `Can't save — ${err?.message || "unknown error"}.`;
+  }
+}
+
 // Turns a Firebase auth error code into something worth showing a user.
 export function authErrorMessage(code) {
   switch (code) {
@@ -88,32 +106,36 @@ export function authErrorMessage(code) {
 
 // Subscribes to the shared household doc in real time. Creates it with
 // empty defaults on first run. Returns an unsubscribe function.
-export function watchHouse(onData) {
+export function watchHouse(onData, onError) {
   const ref = doc(db, "households", HOUSE_ID);
   const unsub = onSnapshot(
     ref,
     (snap) => {
       if (!snap.exists()) {
-        setDoc(ref, EMPTY_HOUSE).catch((e) => console.error(e));
+        setDoc(ref, EMPTY_HOUSE).catch((e) => {
+          console.error("watchHouse create error", e);
+          onError?.(e);
+        });
         onData(EMPTY_HOUSE);
       } else {
         onData({ ...EMPTY_HOUSE, ...snap.data() });
       }
     },
-    (err) => console.error("watchHouse error", err)
+    (err) => {
+      console.error("watchHouse error", err);
+      onError?.(err);
+    }
   );
   return unsub;
 }
 
 // Overwrites a single field (e.g. "shopping") on the shared house doc.
-export async function saveField(field, value) {
+// A merging setDoc creates the document if it isn't there yet and updates it
+// if it is, so this needs no create/update branch. Errors propagate: a write
+// the rules reject must reach the UI, not disappear.
+export function saveField(field, value) {
   const ref = doc(db, "households", HOUSE_ID);
-  try {
-    await updateDoc(ref, { [field]: value });
-  } catch (e) {
-    // Doc may not exist yet on the very first write.
-    await setDoc(ref, { ...EMPTY_HOUSE, [field]: value }, { merge: true });
-  }
+  return setDoc(ref, { [field]: value }, { merge: true });
 }
 
 /* ---------------- Notifications ---------------- */
