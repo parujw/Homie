@@ -1,0 +1,13 @@
+{
+  "name": "homie-functions",
+  "description": "Push notifications for Homie",
+  "main": "index.js",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.3.1"
+  }
+}

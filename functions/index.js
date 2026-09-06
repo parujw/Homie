@@ -1,23 +1,14 @@
 /**
- * OPTIONAL — this is not deployed automatically.
+ * Push notifications for when the other person's phone has the app closed.
+ * (While the app is open the client shows these itself via localNotify.)
  *
- * This Cloud Function is what makes notifications arrive even when the
- * other person's phone has the app fully closed (real push, not just the
- * in-app "localNotify" used while the app is open).
+ * Deploy with:  npx -y firebase-tools@latest deploy --only functions
+ * Requires the Blaze plan.
  *
- * Setup:
- *   1. Install the Firebase CLI: npm install -g firebase-tools
- *   2. From the project root: firebase login && firebase init functions
- *      (choose your existing project, JavaScript, and skip overwriting this file)
- *   3. Your project must be on the Blaze (pay-as-you-go) plan to deploy
- *      functions — it stays free for this kind of usage under normal limits.
- *   4. Copy this file's contents into functions/index.js it creates.
- *   5. Deploy: firebase deploy --only functions
- *
- * What it does: whenever households/putter-and-q changes, it diffs the
- * shopping/events/expenses arrays against the previous version and sends a
- * push notification (via FCM) to whichever person DIDN'T make the change,
- * using the device tokens saved by registerPushToken() in src/firebase.js.
+ * Whenever households/putter-and-q changes, this diffs the shopping, events
+ * and expenses arrays against the previous version and pushes to whichever
+ * person did NOT make the change, using the device tokens that
+ * registerPushToken() in src/firebase.js saves on the same document.
  */
 const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
@@ -25,39 +16,50 @@ const { getMessaging } = require("firebase-admin/messaging");
 
 initializeApp();
 
+// Must match the Firestore database's location.
+const REGION = "asia-southeast1";
+
 function newlyAdded(before, after) {
   return (after || []).filter((x) => !(before || []).some((y) => y.id === x.id));
 }
 
-exports.notifyOnHouseChange = onDocumentUpdated("households/{houseId}", async (event) => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
+// Builds one FCM message per (new item, device of the other person).
+// Exported so the routing can be checked without a live Firestore event.
+function buildMessages(before, after) {
   const tokens = after.tokens || {};
-
   const messages = [];
 
-  newlyAdded(before.shopping, after.shopping).forEach((item) => {
-    const target = item.addedBy === "Putter" ? "Q" : "Putter";
-    (tokens[target] || []).forEach((token) =>
-      messages.push({ token, notification: { title: "Homie · Shopping", body: `${item.addedBy} added "${item.text}"` } })
-    );
-  });
+  const add = (list, who, title, body) =>
+    newlyAdded(before[list], after[list]).forEach((x) => {
+      const target = who(x) === "Putter" ? "Q" : "Putter";
+      (tokens[target] || []).forEach((token) =>
+        messages.push({ token, notification: { title, body: body(x) } })
+      );
+    });
 
-  newlyAdded(before.events, after.events).forEach((ev) => {
-    const target = ev.owner === "Putter" ? "Q" : "Putter";
-    (tokens[target] || []).forEach((token) =>
-      messages.push({ token, notification: { title: "Homie · Calendar", body: `${ev.owner} added "${ev.title}"` } })
-    );
-  });
+  add("shopping", (i) => i.addedBy, "Homie \u00b7 Shopping", (i) => `${i.addedBy} added "${i.text}"`);
+  add("events", (e) => e.owner, "Homie \u00b7 Calendar", (e) => `${e.owner} added "${e.title}"`);
+  add("expenses", (e) => e.paidBy, "Homie \u00b7 Finance", (e) => `${e.paidBy} logged ${e.desc} (\u0e3f${e.amount})`);
 
-  newlyAdded(before.expenses, after.expenses).forEach((exp) => {
-    const target = exp.paidBy === "Putter" ? "Q" : "Putter";
-    (tokens[target] || []).forEach((token) =>
-      messages.push({ token, notification: { title: "Homie · Finance", body: `${exp.paidBy} logged ${exp.desc} (฿${exp.amount})` } })
-    );
-  });
+  return messages;
+}
+exports.buildMessages = buildMessages;
 
-  if (messages.length === 0) return;
-  const messaging = getMessaging();
-  await Promise.allSettled(messages.map((m) => messaging.send(m)));
-});
+exports.notifyOnHouseChange = onDocumentUpdated(
+  { document: "households/{houseId}", region: REGION },
+  async (event) => {
+    if (!event.data) return;
+    const messages = buildMessages(
+      event.data.before.data() || {},
+      event.data.after.data() || {}
+    );
+    if (messages.length === 0) return;
+    // sendEach delivers every message even if some tokens are stale, and
+    // reports the failures rather than throwing on the first one.
+    const res = await getMessaging().sendEach(messages);
+    if (res.failureCount > 0) {
+      console.warn(`${res.failureCount}/${messages.length} pushes failed`,
+        res.responses.filter((r) => !r.success).map((r) => r.error?.code));
+    }
+  }
+);
