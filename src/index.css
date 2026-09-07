@@ -6,6 +6,12 @@
   :root {
     --font-sans: Inter, "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
     --font-display: Fraunces, "Noto Serif Thai", Georgia, serif;
+
+    /* The viewport is "viewport-fit=cover", so installed on an iPhone the page
+       runs under the status bar and the home indicator. Keep the insets in
+       variables so layout can reserve that space (and so tests can fake it). */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   html {
@@ -18,6 +24,13 @@
     font-family: var(--font-sans);
     /* Tap highlights on iOS make every card flash grey when scrolling. */
     -webkit-tap-highlight-color: transparent;
+  }
+
+  .app-shell {
+    height: 100vh;
+    /* dvh tracks Safari's collapsing toolbar, so the bottom nav stays put
+       instead of hiding behind it when the app runs in a browser tab. */
+    height: 100dvh;
   }
 
   button {

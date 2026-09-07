@@ -178,7 +178,8 @@ function Sheet({ title, onClose, children }) {
       <div
         style={{
           position: "relative", width: "100%", maxWidth: 430, background: C.paper,
-          borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: "18px 20px 28px",
+          borderTopLeftRadius: 28, borderTopRightRadius: 28,
+          padding: "18px 20px calc(28px + var(--safe-bottom))",
           maxHeight: "82vh", overflowY: "auto",
         }}
       >
@@ -360,7 +361,7 @@ function BottomNav({ tab, setTab, shoppingCount }) {
     { key: "profile", label: "Profile", Icon: User },
   ];
   return (
-    <div style={{ position: "sticky", bottom: 0, background: C.card, borderTop: `1px solid ${C.line}`, display: "flex", padding: "8px 2px 10px" }}>
+    <div style={{ position: "sticky", bottom: 0, background: C.card, borderTop: `1px solid ${C.line}`, display: "flex", padding: "8px 2px 10px", paddingBottom: "calc(10px + var(--safe-bottom))" }}>
       {items.map(({ key, label, Icon, badge }) => {
         const active = tab === key;
         return (
@@ -1154,9 +1155,9 @@ export default function App() {
   const openShoppingCount = shopping.filter((i) => !i.done).length;
 
   return (
-    <div style={{ width: "100%", height: "100vh", display: "flex", justifyContent: "center", background: "#E9E1D2", fontFamily: "var(--font-sans)" }}>
+    <div className="app-shell" style={{ width: "100%", display: "flex", justifyContent: "center", background: "#E9E1D2", fontFamily: "var(--font-sans)" }}>
       <style>{`* { box-sizing: border-box; } ::-webkit-scrollbar { display: none; }`}</style>
-      <div style={{ width: "100%", maxWidth: 430, background: C.paper, display: "flex", flexDirection: "column", height: "100%", position: "relative" }}>
+      <div style={{ width: "100%", maxWidth: 430, background: C.paper, display: "flex", flexDirection: "column", height: "100%", position: "relative", paddingTop: "var(--safe-top)" }}>
         {!authReady ? (
           <div className="flex items-center justify-center h-full"><p style={{ color: C.ink50, fontSize: 14.5 }}>Loading Homie…</p></div>
         ) : !user ? (
