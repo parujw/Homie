@@ -37,6 +37,14 @@ function bangkokDate(offsetDays = 0) {
   }).format(now);
 }
 
+// Events may span days: `date` is the first, optional `endDate` the last.
+function eventEnd(e) {
+  return e.endDate && e.endDate > e.date ? e.endDate : e.date;
+}
+function eventCovers(e, iso) {
+  return iso >= e.date && iso <= eventEnd(e);
+}
+
 async function loadHouse() {
   const snap = await getFirestore().doc(`households/${HOUSE_ID}`).get();
   return snap.exists ? snap.data() : null;
@@ -108,6 +116,8 @@ exports.remindTomorrow = onSchedule(
     const house = await loadHouse();
     if (!house) return;
     const tomorrow = bangkokDate(1);
+    // Only the day it starts — no point repeating the reminder every night
+    // of a five-day trip.
     const events = (house.events || []).filter((e) => e.date === tomorrow);
     if (events.length === 0) return;
 
@@ -139,8 +149,9 @@ exports.morningBrief = onSchedule(
     );
 
     for (const who of ["Putter", "Q"]) {
+      // A multi-day event is "on today" for every day it covers.
       const events = (house.events || []).filter(
-        (e) => e.date === today && (e.type === "shared" || e.owner === who)
+        (e) => eventCovers(e, today) && (e.type === "shared" || e.owner === who)
       );
       const parts = [];
       if (events.length) parts.push(`📅 ${events.map((e) => e.title).join(", ")}`);

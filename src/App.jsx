@@ -125,6 +125,25 @@ function fmtDateLabel(iso) {
   const d = new Date(iso + "T00:00:00");
   return `${d.getDate()} ${MONTH_NAMES[d.getMonth()].slice(0, 3)}`;
 }
+/* Events may span several days. `date` is always the first day; `endDate` is
+   optional, and events saved before ranges existed simply don't have one. */
+function eventEnd(e) {
+  return e.endDate && e.endDate > e.date ? e.endDate : e.date;
+}
+function eventCovers(e, iso) {
+  return iso >= e.date && iso <= eventEnd(e);
+}
+// "2 Oct" for a single day, "2–4 Oct" or "30 Sep – 2 Oct" for a range.
+function fmtEventDates(e) {
+  const end = eventEnd(e);
+  if (end === e.date) return fmtDateLabel(e.date);
+  const a = new Date(e.date + "T00:00:00"), b = new Date(end + "T00:00:00");
+  if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) {
+    return `${a.getDate()}–${b.getDate()} ${MONTH_NAMES[b.getMonth()].slice(0, 3)}`;
+  }
+  return `${fmtDateLabel(e.date)} – ${fmtDateLabel(end)}`;
+}
+
 function otherUser(identity) {
   return USERS.find((u) => u !== identity) || USERS[0];
 }
@@ -389,8 +408,9 @@ function HomeTab({ identity, shopping, events, pets, budgets, expenses, setTab }
     const today = todayISO();
     return events
       // Personal events belong to whoever made them; only shared ones and
-      // your own show up here.
-      .filter((e) => e.date >= today && (e.type === "shared" || e.owner === identity))
+      // your own show up here. A trip that has already started still counts
+      // as upcoming until its last day passes.
+      .filter((e) => eventEnd(e) >= today && (e.type === "shared" || e.owner === identity))
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 3);
   }, [events, identity]);
@@ -433,11 +453,15 @@ function HomeTab({ identity, shopping, events, pets, budgets, expenses, setTab }
           upcomingEvents.map((e, i) => (
             <div key={e.id} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
               <div style={{ width: 42, textAlign: "center", background: e.type === "shared" ? C.primarySoft : C.mintSoft, borderRadius: 12, padding: "5px 0" }}>
-                <div style={{ fontWeight: 700, fontSize: 16.5, color: e.type === "shared" ? C.primary : C.mint }}>{new Date(e.date + "T00:00:00").getDate()}</div>
+                <div style={{ fontWeight: 700, fontSize: eventEnd(e) === e.date ? 16.5 : 13.5, color: e.type === "shared" ? C.primary : C.mint }}>
+                  {eventEnd(e) === e.date
+                    ? new Date(e.date + "T00:00:00").getDate()
+                    : `${new Date(e.date + "T00:00:00").getDate()}–${new Date(eventEnd(e) + "T00:00:00").getDate()}`}
+                </div>
               </div>
               <div className="flex-1">
                 <p style={{ fontWeight: 600, fontSize: 15.5, color: C.ink }}>{e.title}</p>
-                <p style={{ fontSize: 13.5, color: C.ink50 }}>{e.owner} · {e.type}</p>
+                <p style={{ fontSize: 13.5, color: C.ink50 }}>{fmtEventDates(e)} · {e.owner} · {e.type}</p>
               </div>
             </div>
           ))
@@ -571,9 +595,16 @@ function CalendarTab({ events, setEvents, moods, setMoods, identity }) {
   const filteredEvents = events.filter((e) =>
     scope === "shared" ? e.type === "shared" : e.type === "personal" && e.owner === identity
   );
+  // A multi-day event gets a dot on every day it covers, not just its first.
   const eventsByDay = {};
-  filteredEvents.forEach((e) => { if (e.date.startsWith(monthStr)) eventsByDay[e.date] = (eventsByDay[e.date] || 0) + 1; });
-  const dayEvents = filteredEvents.filter((e) => e.date === selected);
+  filteredEvents.forEach((e) => {
+    for (let d = new Date(e.date + "T00:00:00"); ; d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (iso > eventEnd(e)) break;
+      if (iso.startsWith(monthStr)) eventsByDay[iso] = (eventsByDay[iso] || 0) + 1;
+    }
+  });
+  const dayEvents = filteredEvents.filter((e) => eventCovers(e, selected));
 
   const changeMonth = (delta) => {
     let m = cursor.m + delta, y = cursor.y;
@@ -582,8 +613,11 @@ function CalendarTab({ events, setEvents, moods, setMoods, identity }) {
   };
   const addEvent = () => {
     if (!form.title.trim()) return;
-    setEvents([{ id: uid(), title: form.title.trim(), date: selected, type: form.type, owner: identity }, ...events]);
-    setForm({ title: "", type: "shared" });
+    const ev = { id: uid(), title: form.title.trim(), date: selected, type: form.type, owner: identity };
+    // Only store an end date when it actually extends past the start.
+    if (form.endDate && form.endDate > selected) ev.endDate = form.endDate;
+    setEvents([ev, ...events]);
+    setForm({ title: "", type: "shared", endDate: "" });
     setShowAdd(false);
   };
   const removeEvent = (id) => setEvents(events.filter((e) => e.id !== id));
@@ -655,7 +689,9 @@ function CalendarTab({ events, setEvents, moods, setMoods, identity }) {
                   <div style={{ width: 8, height: 8, borderRadius: 8, background: e.type === "shared" ? C.primary : C.mint, flexShrink: 0 }} />
                   <div className="flex-1">
                     <p style={{ fontSize: 15.5, fontWeight: 600, color: C.ink }}>{e.title}</p>
-                    <p style={{ fontSize: 13, color: C.ink50 }}>{e.owner} · {e.type}</p>
+                    <p style={{ fontSize: 13, color: C.ink50 }}>
+                      {eventEnd(e) !== e.date && `${fmtEventDates(e)} · `}{e.owner} · {e.type}
+                    </p>
                   </div>
                   <button onClick={() => removeEvent(e.id)}><Trash2 size={14} color={C.ink30} /></button>
                 </div>
@@ -706,6 +742,13 @@ function CalendarTab({ events, setEvents, moods, setMoods, identity }) {
       {showAdd && (
         <Sheet title={`Add event · ${fmtDateLabel(selected)}`} onClose={() => setShowAdd(false)}>
           <TextField label="Title" placeholder="e.g. Vet appointment" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <TextField
+            label="Ends (optional)"
+            type="date"
+            min={selected}
+            value={form.endDate || ""}
+            onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+          />
           <span style={{ fontSize: 14, color: C.ink70, fontWeight: 600, display: "block", marginBottom: 5 }}>Type</span>
           <PillSelect options={["shared", "personal"]} value={form.type} onChange={(v) => setForm({ ...form, type: v })} />
           <PrimaryButton onClick={addEvent}><Plus size={16} /> Add event</PrimaryButton>
