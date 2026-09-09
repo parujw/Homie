@@ -387,8 +387,13 @@ function HomeTab({ identity, shopping, events, pets, budgets, expenses, setTab }
   const openShopping = shopping.filter((i) => !i.done);
   const upcomingEvents = useMemo(() => {
     const today = todayISO();
-    return events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
-  }, [events]);
+    return events
+      // Personal events belong to whoever made them; only shared ones and
+      // your own show up here.
+      .filter((e) => e.date >= today && (e.type === "shared" || e.owner === identity))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 3);
+  }, [events, identity]);
   const petTasks = useMemo(() => {
     const list = [];
     pets.forEach((p) => (p.tasks || []).filter((t) => !t.done).forEach((t) => list.push({ ...t, petName: p.name })));
@@ -561,7 +566,11 @@ function CalendarTab({ events, setEvents, moods, setMoods, identity }) {
   const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
   const firstDow = new Date(cursor.y, cursor.m, 1).getDay();
   const monthStr = `${cursor.y}-${String(cursor.m + 1).padStart(2, "0")}`;
-  const filteredEvents = events.filter((e) => (scope === "shared" ? e.type === "shared" : e.owner === identity));
+  // "Shared" is everything both of you can see; "Personal" is only your own —
+  // never the other person's private entries.
+  const filteredEvents = events.filter((e) =>
+    scope === "shared" ? e.type === "shared" : e.type === "personal" && e.owner === identity
+  );
   const eventsByDay = {};
   filteredEvents.forEach((e) => { if (e.date.startsWith(monthStr)) eventsByDay[e.date] = (eventsByDay[e.date] || 0) + 1; });
   const dayEvents = filteredEvents.filter((e) => e.date === selected);
