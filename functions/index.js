@@ -15,6 +15,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const { sendLine, makeLineWebhook, LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET } = require("./line");
 
 initializeApp();
 
@@ -50,59 +51,64 @@ async function loadHouse() {
   return snap.exists ? snap.data() : null;
 }
 
-// Sends one notification to every device of the named people.
-async function pushTo(tokensByUser, people, title, body) {
+// Delivers one notification to the named people — to every device they've
+// registered for push, and to their LINE chat if they've linked one.
+async function notify(house, people, title, body) {
+  const tokensByUser = house.tokens || {};
+  const line = house.line || {};
+
   const messages = people.flatMap((who) =>
     (tokensByUser[who] || []).map((token) => ({ token, notification: { title, body } }))
   );
-  if (messages.length === 0) return;
-  const res = await getMessaging().sendEach(messages);
-  if (res.failureCount > 0) {
-    console.warn(`${res.failureCount}/${messages.length} pushes failed`,
-      res.responses.filter((r) => !r.success).map((r) => r.error?.code));
-  }
-}
-
-// Builds one FCM message per (new item, device of the other person).
-// Exported so the routing can be checked without a live Firestore event.
-function buildMessages(before, after) {
-  const tokens = after.tokens || {};
-  const messages = [];
-
-  const add = (list, who, title, body) =>
-    newlyAdded(before[list], after[list]).forEach((x) => {
-      const target = who(x) === "Putter" ? "Q" : "Putter";
-      (tokens[target] || []).forEach((token) =>
-        messages.push({ token, notification: { title, body: body(x) } })
-      );
-    });
-
-  add("shopping", (i) => i.addedBy, "Homie \u00b7 Shopping", (i) => `${i.addedBy} added "${i.text}"`);
-  add("events", (e) => e.owner, "Homie \u00b7 Calendar", (e) => `${e.owner} added "${e.title}"`);
-  add("expenses", (e) => e.paidBy, "Homie \u00b7 Finance", (e) => `${e.paidBy} logged ${e.desc} (\u0e3f${e.amount})`);
-
-  return messages;
-}
-exports.buildMessages = buildMessages;
-
-exports.notifyOnHouseChange = onDocumentUpdated(
-  { document: "households/{houseId}", region: REGION },
-  async (event) => {
-    if (!event.data) return;
-    const messages = buildMessages(
-      event.data.before.data() || {},
-      event.data.after.data() || {}
-    );
-    if (messages.length === 0) return;
-    // sendEach delivers every message even if some tokens are stale, and
-    // reports the failures rather than throwing on the first one.
+  if (messages.length > 0) {
     const res = await getMessaging().sendEach(messages);
     if (res.failureCount > 0) {
       console.warn(`${res.failureCount}/${messages.length} pushes failed`,
         res.responses.filter((r) => !r.success).map((r) => r.error?.code));
     }
   }
+
+  await Promise.all(
+    people.filter((who) => line[who]).map((who) => sendLine(line[who], `${title}\n${body}`))
+  );
+}
+
+// Works out who should hear about each newly added item, and what to say.
+// Exported so the routing can be checked without a live Firestore event.
+function buildAlerts(before, after) {
+  const alerts = [];
+  const add = (list, who, title, body) =>
+    newlyAdded(before[list], after[list]).forEach((x) => {
+      alerts.push({ target: who(x) === "Putter" ? "Q" : "Putter", title, body: body(x) });
+    });
+
+  add("shopping", (i) => i.addedBy, "Homie \u00b7 Shopping", (i) => `${i.addedBy} added "${i.text}"`);
+  add("events", (e) => e.owner, "Homie \u00b7 Calendar", (e) => `${e.owner} added "${e.title}"`);
+  add("expenses", (e) => e.paidBy, "Homie \u00b7 Finance", (e) => `${e.paidBy} logged ${e.desc} (\u0e3f${e.amount})`);
+
+  return alerts;
+}
+exports.buildAlerts = buildAlerts;
+
+exports.notifyOnHouseChange = onDocumentUpdated(
+  {
+    document: "households/{houseId}",
+    region: REGION,
+    secrets: [LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET],
+  },
+  async (event) => {
+    if (!event.data) return;
+    const after = event.data.after.data() || {};
+    const alerts = buildAlerts(event.data.before.data() || {}, after);
+    for (const a of alerts) {
+      await notify(after, [a.target], a.title, a.body);
+    }
+  }
 );
+
+// Webhook for the LINE Official Account — people link their chat by messaging
+// it their name. Its URL goes in the LINE Developers console.
+exports.lineWebhook = makeLineWebhook(REGION, HOUSE_ID);
 
 /* ------------------------------------------------------------------
    Scheduled reminders
@@ -111,7 +117,8 @@ exports.notifyOnHouseChange = onDocumentUpdated(
 // Evening before: "you have something on tomorrow".
 // A shared event notifies both of you; a personal one only its owner.
 exports.remindTomorrow = onSchedule(
-  { schedule: "0 20 * * *", timeZone: TIME_ZONE, region: REGION },
+  { schedule: "0 20 * * *", timeZone: TIME_ZONE, region: REGION,
+    secrets: [LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET] },
   async () => {
     const house = await loadHouse();
     if (!house) return;
@@ -121,7 +128,6 @@ exports.remindTomorrow = onSchedule(
     const events = (house.events || []).filter((e) => e.date === tomorrow);
     if (events.length === 0) return;
 
-    const tokens = house.tokens || {};
     for (const who of ["Putter", "Q"]) {
       const mine = events.filter((e) => e.type === "shared" || e.owner === who);
       if (mine.length === 0) continue;
@@ -129,7 +135,7 @@ exports.remindTomorrow = onSchedule(
         mine.length === 1
           ? `Tomorrow: ${mine[0].title}`
           : `Tomorrow: ${mine.map((e) => e.title).join(", ")}`;
-      await pushTo(tokens, [who], "Homie · Tomorrow", body);
+      await notify(house, [who], "Homie · Tomorrow", body);
     }
   }
 );
@@ -137,12 +143,12 @@ exports.remindTomorrow = onSchedule(
 // Morning brief: what's on today, plus anything still waiting.
 // Stays quiet on a day with nothing to say rather than sending an empty ping.
 exports.morningBrief = onSchedule(
-  { schedule: "0 7 * * *", timeZone: TIME_ZONE, region: REGION },
+  { schedule: "0 7 * * *", timeZone: TIME_ZONE, region: REGION,
+    secrets: [LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET] },
   async () => {
     const house = await loadHouse();
     if (!house) return;
     const today = bangkokDate();
-    const tokens = house.tokens || {};
     const openShopping = (house.shopping || []).filter((i) => !i.done);
     const petTasks = (house.pets || []).flatMap((p) =>
       (p.tasks || []).filter((t) => !t.done).map((t) => `${t.text} (${p.name})`)
@@ -158,7 +164,7 @@ exports.morningBrief = onSchedule(
       if (openShopping.length) parts.push(`🛒 ${openShopping.length} to buy`);
       if (petTasks.length) parts.push(`🐾 ${petTasks.join(", ")}`);
       if (parts.length === 0) continue;
-      await pushTo(tokens, [who], "Homie · Good morning", parts.join(" · "));
+      await notify(house, [who], "Homie · Good morning", parts.join(" · "));
     }
   }
 );

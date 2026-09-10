@@ -55,6 +55,36 @@ npx -y firebase-tools@latest deploy --only functions
 (Share → Add to Home Screen แล้วเปิดจากหน้าโฮม) — หน้า Profile ในแอปจะบอก
 สถานะนี้ให้เอง
 
+## แจ้งเตือนทาง LINE
+
+แจ้งเตือนทุกแบบข้างบนจะถูกส่งเข้า LINE ด้วย ถ้าผูกบัญชีไว้
+(LINE Notify ปิดบริการไปแล้วเมื่อ 31 มี.ค. 2025 จึงต้องใช้ Messaging API)
+
+**ตั้งค่าครั้งเดียว:**
+
+1. สร้าง LINE Official Account ที่ https://developers.line.biz/console/
+   → Create channel → **Messaging API**
+2. ในแท็บ **Messaging API** ของ channel:
+   - กด **Issue** เพื่อออก **Channel access token (long-lived)**
+   - ปิด **Auto-reply messages** และ **Greeting messages** (ไม่งั้นบอทจะตอบข้อความอัตโนมัติกวน)
+3. ในแท็บ **Basic settings** คัดลอก **Channel secret**
+4. เก็บทั้งสองค่าเป็น secret ของ Cloud Functions:
+   ```bash
+   npx -y firebase-tools@latest functions:secrets:set LINE_CHANNEL_ACCESS_TOKEN
+   npx -y firebase-tools@latest functions:secrets:set LINE_CHANNEL_SECRET
+   ```
+5. Deploy: `npx -y firebase-tools@latest deploy --only functions`
+6. เอา URL ของฟังก์ชัน `lineWebhook` ที่ได้จากผล deploy ไปใส่เป็น
+   **Webhook URL** ในแท็บ Messaging API แล้วเปิด **Use webhook**
+7. แอดเพื่อนกับ OA (สแกน QR ในหน้า Messaging API) แล้ว **พิมพ์ชื่อตัวเอง**
+   ในแชท — `Putter` หรือ `Q` — บอทจะตอบยืนยันว่าผูกแล้ว
+
+พิมพ์ `ยกเลิก` ในแชทเพื่อเลิกรับแจ้งเตือน
+
+**โควตา:** LINE Official Account แบบฟรีส่งข้อความได้จำนวนจำกัดต่อเดือน
+ถ้าเกินโควตา LINE จะตอบ 429 และฟังก์ชันจะเขียน log ไว้ (แจ้งเตือนใน
+แอปกับ push ยังทำงานปกติ)
+
 ## สิ่งที่ทำไม่ได้จากเว็บแอป
 
 - Widget แบบ native บนหน้าจอโฮม (ต้องเขียนแอป native จริง)
